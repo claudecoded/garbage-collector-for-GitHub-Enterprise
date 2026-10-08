@@ -1,0 +1,53 @@
+name: Automated GitHub Garbage Collector
+
+on:
+  schedule:
+    # Runs at 00:00 every Monday (UTC)
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+    # Allows engineering admins to trigger the cleanup sequence manually via the GitHub UI
+    inputs:
+      dry_run_override:
+        description: 'Set to "false" to execute live archival changes. WARNING: "false" will archive stale repos.'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: write
+  repositories: write
+
+jobs:
+  run-garbage-collector:
+    name: Execute Repository Cleanup Cycle
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Project Dependencies
+        run: npm ci
+
+      - name: Compile TypeScript to Production JavaScript
+        run: npm run build
+
+      - name: Execute Garbage Collector Engine
+        run: npm start
+        env:
+          GITHUB_API_URL: ${{ secrets.ORGANIZATION_GITHUB_API_URL || 'https://github.com' }}
+          GITHUB_PAT: ${{ secrets.ORGANIZATION_ADMIN_PAT }}
+          GITHUB_ORG: ${{ github.repository_owner }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_ALERT_WEBHOOK_URL }}
+          INACTIVITY_DAYS_THRESHOLD: 180
+          # Evaluates manual input trigger first, defaults to true (safe-mode) on cron schedules
+          DRY_RUN: ${{ github.event.inputs.dry_run_override || 'true' }}
